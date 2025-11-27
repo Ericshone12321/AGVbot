@@ -1,0 +1,36 @@
+{
+    "nogo": [
+      {"x":2, "y":2}, {"x":3, "y":2}
+      
+    ],
+    "shelves": [
+      
+    ],
+    "oneway": [ 
+      {
+        "direction": "xPos", 
+        "points": [
+          
+        ]
+      },
+      {
+        "direction": "xNeg",
+        "points": [
+          
+        ]
+      },
+      {
+        "direction": "yPos",
+        "points": [
+          
+        ]
+      },
+      {
+        "direction": "yNeg",
+        "points": [         
+          
+        ]
+      }
+    ]
+  }
+  
