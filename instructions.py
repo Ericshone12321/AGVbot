@@ -1,17 +1,22 @@
 from AGV_SDK.WCSFunction import WCSFunction
 import time
 import asyncio
+from bleak import BleakClient
 
 IsMoving = False
 CurrentPosition = None
 IsScriptFinish = False
 ScriptStarted = False
+IsBusy = False
 
-def show(wcs):
-    print(wcs.get_car_status("240"))
+# ====== SwitchBot BLE UUID ======
+SERVICE_UUID = "cba20d00-224d-11e6-9fb8-0002a5d5c51b"
+CHAR_UUID    = "cba20002-224d-11e6-9fb8-0002a5d5c51b"
+
+
 
 async def status_worker(wcs):
-    global IsMoving, CurrentPosition, IsScriptFinish
+    global IsMoving, CurrentPosition, IsScriptFinish, IsBusy
     while True:
         try:
             status = wcs.get_car_status("240")
@@ -25,10 +30,14 @@ async def status_worker(wcs):
             IsMoving = status.Status.Flag.IsMoving
             CurrentPosition = status.Attitude.Code
             IsScriptFinish = status.Status.Flag.IsScriptFinish
+            IsBusy = status.Status.AxisM.Busy
 
             print("Position:", CurrentPosition)
             print("IsMoving:", IsMoving)
             print("IsScriptFinish:", IsScriptFinish)
+            print("IsBusy:", IsBusy)
+            print("direction:", wcs.get_car_status("240").Location.A)
+            print("---------------------------------------------")
 
         except Exception as e:
             print("[ERROR] status_worker 發生錯誤：", repr(e))
@@ -36,7 +45,7 @@ async def status_worker(wcs):
         await asyncio.sleep(0.2)
 
 
-async def wait_until_stop(timeout=10, stable_count=10):
+async def wait_until_stop(timeout=30, stable_count=20):
     start = time.time()
     stable = 0
 
@@ -55,43 +64,81 @@ async def wait_until_stop(timeout=10, stable_count=10):
         await asyncio.sleep(0.1)
 
 
-async def run_script(wcs, script_name, timeout=40):
-    global ScriptStarted
+async def run_move_to_target(target, robot, timeout=40):
     start = time.time()
+    
+    # step 1：先等上一段動作完成（Idle = Busy=False）
+    while IsBusy:
+        if time.time() - start > timeout:
+            print("Timeout：上一段動作仍 Busy")
+        await asyncio.sleep(0.1)
 
-    if not ScriptStarted:
-        print(f"[首次] 執行腳本: {script_name}")
-        wcs.run_robot_script("240", script_name)
-        ScriptStarted = True
+    if(int(target) == robot.wcs.get_car_status("240").Attitude.Code):
+        print("已在目標點，無需移動")
+        return True
+
+    print(f"開始 move_to_target → {target}")
+    #如果在小圈內就走出來
+    if(robot.wcs.get_car_status("240").Attitude.Code == 210110):
+        if(robot.wcs.get_car_status("240").Location.A == 0):
+            await robot.turn_left90()
+            await robot.run(140)
+            time.sleep(3)
+            await robot.turn_right90()
+            await robot.wait_pos(210130)
+            await robot.run(600)
+            await robot.turn_right90()
+            await robot.wait_pos(20010)
+            robot.wcs.move_to_target("240", target)
+
+    #小圈進入點
+    elif(target == "020010"):
+        if(robot.wcs.get_car_status("240").Attitude.Code == 30010):
+            if(robot.wcs.get_car_status("240").Location.A == 18000):
+                await robot.turn_left180()
+                await robot.wait_pos(30010)
+            if(robot.wcs.get_car_status("240").Location.A == 0):
+                await robot.run(500)
+                await robot.turn_right90()
+                await robot.run(140)
+                await robot.turn_left180()
+                await robot.wait_pos(210110)
+                print("move_to_target 完成")
+                return True
+        else:
+            robot.wcs.move_to_target("240", target)
+            await robot.wait_pos(int(target))
+            if(robot.wcs.get_car_status("240").Location.A == 0):
+                await robot.turn_left180()
+            if(robot.wcs.get_car_status("240").Location.A == 18000):
+                await robot.run(600)
+                await robot.turn_left90()
+                await robot.run(140)
+                time.sleep(3)
+                await robot.turn_left90()
+                await robot.wait_pos(210110)
+                print("move_to_target 完成")
+                return True
     else:
-        while not IsScriptFinish:
-            if time.time() - start > timeout:
-                print("Timeout：上一條 Script 尚未完成")
-                return False
-            await asyncio.sleep(0.1)
+        robot.wcs.move_to_target("240", target)
 
-        print(f"執行腳本: {script_name}")
-        wcs.run_robot_script("240", script_name)
-
-    # 等開始執行 (IsScriptFinish False)
-    while IsScriptFinish:
+    # step 2：等待動作開始（Busy=True）
+    while not IsBusy:
         if time.time() - start > timeout:
-            print("Timeout：Script 未開始")
-            return False
+            print("Timeout：move_to_target 沒有開始")
         await asyncio.sleep(0.1)
 
-    # 等執行完成 (IsScriptFinish True)
-    while not IsScriptFinish:
+    # step 3：等待動作完成（Busy=False）
+    while IsBusy:
         if time.time() - start > timeout:
-            print("Timeout：Script 未完成")
-            return False
-        await asyncio.sleep(0.1)
+            print("Timeout：move_to_target 執行時間過長")
+        await asyncio.sleep(1)
+    await wait_until_position(int(target))
 
-    print("Script 完成")
+    print("move_to_target 完成")
     return True
 
-
-async def wait_until_position(target_code, timeout=10):
+async def wait_until_position(target_code, timeout=30):
     await wait_until_stop()
 
     start = None  # 還沒開始計時
@@ -111,6 +158,22 @@ async def wait_until_position(target_code, timeout=10):
 
         await asyncio.sleep(0.1)
 
+# ====== SwitchBot ======
+async def press_bot(mac: str):
+    try:
+        async with BleakClient(mac) as client:
+            if not client.is_connected:
+                return False, "連線 SwitchBot 失敗"
+
+            # 取得特徵值
+            char = client.services.get_service(SERVICE_UUID).get_characteristic(CHAR_UUID)
+
+            # 按下
+            await client.write_gatt_char(char, bytearray([0x57, 0x01, 0x01]))
+
+            return True, "成功按壓 SwitchBot"
+    except Exception as e:
+        return False, f"錯誤: {e}"
 
 class AGV:
     def __init__(self, id, wcs):
@@ -126,53 +189,61 @@ class AGV:
     async def wait_stop(self):
         await wait_until_stop()
         return self
+    
+    async def _wait_busy_clear(self, timeout=10):
+        start = time.time()
+        while IsBusy:
+            if time.time() - start > timeout:
+                raise RuntimeError("Busy 一直為 True，無法發送指令")
+            await asyncio.sleep(0.1)
 
     async def run(self, distance):
         await wait_until_stop()
+        await self._wait_busy_clear()
         self.wcs.motor_run(self.id, distance)
-        return self
-
-    async def turn_left90(self):
-        await wait_until_stop()
-        self.wcs.turn_left90(self.id)
         return self
 
     async def turn_right90(self):
         await wait_until_stop()
+        await self._wait_busy_clear()
         self.wcs.turn_right90(self.id)
+        return self
+
+    async def turn_left90(self):
+        await wait_until_stop()
+        await self._wait_busy_clear()
+        self.wcs.turn_left90(self.id)
         return self
 
     async def turn_left180(self):
         await wait_until_stop()
+        await self._wait_busy_clear()
         self.wcs.turn_left180(self.id)
         return self
-
-    async def script(self, name):
-        await run_script(self.wcs, name)
+    
+    async def tray_turn_left90(self):
+        await wait_until_stop()
+        await self._wait_busy_clear()
+        self.wcs.tray_left90(self.id)
+        return self
+    
+    async def tray_turn_right90(self):
+        await wait_until_stop()
+        await self._wait_busy_clear()
+        self.wcs.tray_right90(self.id)
         return self
 
-async def HomeToP1ToHome(robot):
-    # 啟動狀態監控
-    worker = asyncio.create_task(status_worker(robot.wcs))
+    async def target_script(self, target, robot):
+        await wait_until_stop()
+        await self._wait_busy_clear()
+        await run_move_to_target(target, robot)
+        return self
 
+async def MoveToTarget(robot, target):
+    worker = asyncio.create_task(status_worker(robot.wcs))
     await asyncio.sleep(0.5)
 
-    await robot.wait_pos(10010)
-    await robot.run(1600)
-    await robot.turn_left90()
-
-    await robot.wait_pos(210130)
-    await robot.run(140)
-    await robot.turn_left180()
-
-    await robot.wait_pos(210110)
-    await robot.run(140)
-    await robot.turn_right90()
-
-    await robot.wait_pos(210130)
-    await robot.run(1600)
-    await robot.turn_left90()
-    await robot.turn_right90()
+    await robot.target_script(target, robot)
 
     print("全部腳本完成，準備停止監控")
     worker.cancel()
@@ -182,15 +253,13 @@ async def HomeToP1ToHome(robot):
     except asyncio.CancelledError:
         print("監控成功結束")
 
-async def HomeToP2(robot):
-    # 啟動狀態監控
-    worker = asyncio.create_task(status_worker(robot.wcs))
 
+async def turn_tray_left90(robot):
+    worker = asyncio.create_task(status_worker(robot.wcs))
     await asyncio.sleep(0.5)
 
-    await robot.wait_pos(10010)
-    await robot.script("HomeToP2")
-    
+    await robot.tray_turn_left90()
+
     print("全部腳本完成，準備停止監控")
     worker.cancel()
 
@@ -199,52 +268,12 @@ async def HomeToP2(robot):
     except asyncio.CancelledError:
         print("監控成功結束")
 
-async def P2ToP3(robot):
-    
-    # 啟動狀態監控
+async def turn_tray_right90(robot):
     worker = asyncio.create_task(status_worker(robot.wcs))
-
     await asyncio.sleep(0.5)
 
-    await robot.wait_pos(10020)
-    await robot.script("P2ToP3")
-    
-    print("全部腳本完成，準備停止監控")
-    worker.cancel()
+    await robot.tray_turn_right90()
 
-    try:
-        await worker
-    except asyncio.CancelledError:
-        print("監控成功結束")
-
-async def P3ToP4(robot):
-    
-    # 啟動狀態監控
-    worker = asyncio.create_task(status_worker(robot.wcs))
-
-    await asyncio.sleep(0.5)
-
-    await robot.wait_pos(30010)
-    await robot.script("P3ToP4")
-    
-    print("全部腳本完成，準備停止監控")
-    worker.cancel()
-
-    try:
-        await worker
-    except asyncio.CancelledError:
-        print("監控成功結束")
-
-async def P4ToHome(robot):
-    
-    # 啟動狀態監控
-    worker = asyncio.create_task(status_worker(robot.wcs))
-
-    await asyncio.sleep(0.5)
-
-    await robot.wait_pos(30030)
-    await robot.script("P4ToHome")
-    
     print("全部腳本完成，準備停止監控")
     worker.cancel()
 
