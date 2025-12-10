@@ -1,4 +1,3 @@
-#============90度旋轉會同動==================
 from dataclasses import dataclass #@dataclass用法基本同C的struct，用來快速定義資料容器類別
 import os
 import json
@@ -97,7 +96,7 @@ def ToScript(initial_ang: int, route_list: list[Point]) -> list[CommandItem]:
             if dx == 0 and dy < 0: #車頭朝左->往左走 #直接直走
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1))
             elif dx < 0 and dy == 0: #車頭朝左->往上走
-                commands.append(CommandItem(CommandType.TurnRight90)) #先右轉90
+                commands.append(CommandItem(CommandType.TurnRight90ByTrayStop)) #先右轉90
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1)) #再直走
                 ang = 90
             elif dx == 0 and dy > 0: #車頭朝左->往右走
@@ -105,18 +104,18 @@ def ToScript(initial_ang: int, route_list: list[Point]) -> list[CommandItem]:
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1)) #再直走
                 ang = 180
             else: #車頭朝左->往下走
-                commands.append(CommandItem(CommandType.TurnLeft90)) #先左轉90
+                commands.append(CommandItem(CommandType.TurnLeft90ByTrayStop)) #先左轉90
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1)) #再直走
                 ang = 270        
         elif 45 < ang < 135: #90度 (車頭朝上)
             if dx < 0 and dy == 0: #車頭朝上->往上走 #直接直走
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1))
             elif dx == 0 and dy < 0: #車頭朝上->往左走
-                commands.append(CommandItem(CommandType.TurnLeft90)) #先左轉90
+                commands.append(CommandItem(CommandType.TurnLeft90ByTrayStop)) #先左轉90
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1)) #再直走
                 ang = 0
             elif dx == 0 and dy > 0: #車頭朝上->往右走
-                commands.append(CommandItem(CommandType.TurnRight90)) #先右轉90
+                commands.append(CommandItem(CommandType.TurnRight90ByTrayStop)) #先右轉90
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1)) #再直走
                 ang = 180
             else: #車頭朝上->往下走
@@ -127,15 +126,15 @@ def ToScript(initial_ang: int, route_list: list[Point]) -> list[CommandItem]:
             if dx == 0 and dy > 0: #車頭朝右->往右走 #直接直走
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1))
             elif dx < 0 and dy == 0: #車頭朝右->往上走
-                commands.append(CommandItem(CommandType.TurnLeft90)) #先左轉90
+                commands.append(CommandItem(CommandType.TurnLeft90ByTrayStop)) #先左轉90
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1)) #再直走
                 ang = 90
             elif dx > 0 and dy == 0: #車頭朝右->往下走
-                commands.append(CommandItem(CommandType.TurnRight90)) #先右轉90
+                commands.append(CommandItem(CommandType.TurnRight90ByTrayStop)) #先右轉90
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1)) #再直走
                 ang = 270
             else: #車頭朝右->往左走
-                commands.append(CommandItem(CommandType.TurnRight180)) #先左轉180
+                commands.append(CommandItem(CommandType.TurnRight180ByTrayStop)) #先左轉180
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1)) #再直走
                 ang = 0      
         else:
@@ -143,11 +142,11 @@ def ToScript(initial_ang: int, route_list: list[Point]) -> list[CommandItem]:
             if dx > 0 and dy == 0: #車頭朝下->往下走 #直接直走
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1))
             elif dx == 0 and dy < 0: #車頭朝下->往左走
-                commands.append(CommandItem(CommandType.TurnRight90)) #先右轉90
+                commands.append(CommandItem(CommandType.TurnRight90ByTrayStop)) #先右轉90
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1)) #再直走
                 ang = 0
             elif dx == 0 and dy > 0: #車頭朝下->往右走
-                commands.append(CommandItem(CommandType.TurnLeft90)) #先左轉90
+                commands.append(CommandItem(CommandType.TurnLeft90ByTrayStop)) #先左轉90
                 commands.append(CommandItem(CommandType.GoForwardInMeter + 1)) #再直走
                 ang = 180
             else: #車頭朝下->往上走
